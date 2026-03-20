@@ -23,7 +23,7 @@ MORAL_DIMENSIONS = [
     "加强安全防范", "坚持言行雅正", "秉持公平诚信", "坚守廉洁自律", "规范从教行为"
 ]
 TEACHING_DIMENSIONS = ["教学态度", "教学能力", "教学效果"]
-# 权重配置（核心：明确师德50%、教学50%）
+# 权重配置
 MORAL_WEIGHT = 0.5
 TEACHING_WEIGHT = 0.5
 DATA_FILE = "evaluation_data.json"
@@ -62,7 +62,7 @@ def get_grade(score):
 def admin_auth(password):
     return password == ADMIN_PASSWORD
 
-# ===================== 初始化会话状态（核心：存储输入值，触发实时重运行）=====================
+# ===================== 初始化会话状态（仅初始化，永不修改已实例化组件的state）=====================
 # 管理员状态
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
@@ -71,11 +71,11 @@ if "submission_success" not in st.session_state:
     st.session_state.submission_success = False
 if "submission_info" not in st.session_state:
     st.session_state.submission_info = {}
-# 存储所有评分维度的输入值（关键：用session_state触发实时重运行）
+# 评分维度初始化（仅首次加载时设置，后续通过组件自身更新）
 for dim in MORAL_DIMENSIONS + TEACHING_DIMENSIONS:
     key = f"score_{dim}"
     if key not in st.session_state:
-        st.session_state[key] = 0.0  # 初始值0.0，代表未填写
+        st.session_state[key] = 0.0
 
 # ===================== 侧边栏管理员入口 =====================
 with st.sidebar:
@@ -95,7 +95,21 @@ with st.sidebar:
             st.session_state.is_admin = False
             st.rerun()
 
-# ===================== 普通用户界面（核心：放弃表单，用session_state实现实时计算）=====================
+# ===================== 提交成功后重置逻辑（核心：用rerun实现，不直接修改state）=====================
+def reset_all_inputs():
+    """重置所有输入值，通过rerun生效"""
+    # 重置评分维度
+    for dim in MORAL_DIMENSIONS + TEACHING_DIMENSIONS:
+        st.session_state[f"score_{dim}"] = 0.0
+    # 重置基础信息（通过设置空值+rerun）
+    st.session_state["reset_trigger"] = True
+    st.rerun()
+
+# 初始化重置触发器
+if "reset_trigger" not in st.session_state:
+    st.session_state["reset_trigger"] = False
+
+# ===================== 普通用户界面（完全遵循Streamlit规则：组件驱动state，而非反向）=====================
 st.title("📝 中小学职称评审综合测评")
 st.markdown("### 手机端专用 | 输入即计算，实时显示结果")
 st.markdown("---")
@@ -103,99 +117,98 @@ st.markdown("#### ⚠️ 评分标准：优秀(80-95) | 良好(70-79) | 一般(6
 st.markdown(f"#### ⚖️ 权重配置：师德表现({MORAL_WEIGHT*100}%) + 教学业绩({TEACHING_WEIGHT*100}%)")
 st.markdown("---")
 
-# 1. 基础信息选择（强制用户选择，不能为空）
+# 1. 基础信息选择（核心：仅渲染组件，不手动修改其state）
 col1, col2 = st.columns(2)
 with col1:
-    st.session_state["selected_person"] = st.selectbox(
+    # 重置触发器生效时，默认选中空值
+    default_person = "" if st.session_state["reset_trigger"] else None
+    selected_person = st.selectbox(
         "🔍 选择被测评人", 
-        [""] + EVALUATED_PERSONS,  # 空选项强制选择
-        key="selected_person"
+        [""] + EVALUATED_PERSONS,
+        key="selected_person",
+        index=0 if default_person == "" else None
     )
 with col2:
-    st.session_state["evaluator_role"] = st.selectbox(
+    default_role = "" if st.session_state["reset_trigger"] else None
+    evaluator_role = st.selectbox(
         "👤 你的测评身份", 
-        [""] + EVALUATOR_ROLES,  # 空选项强制选择
-        key="evaluator_role"
+        [""] + EVALUATOR_ROLES,
+        key="evaluator_role",
+        index=0 if default_role == "" else None
     )
+
+# 重置触发器使用后立即清除
+if st.session_state["reset_trigger"]:
+    st.session_state["reset_trigger"] = False
 
 st.markdown("---")
 
-# 2. 师德表现评分（核心：每个输入框绑定session_state，输入即触发重运行）
+# 2. 师德表现评分（核心：仅渲染组件，state由组件自身更新）
 st.markdown("### 🎯 师德表现评价（权重50%）")
 moral_col1, moral_col2 = st.columns(2)
 for idx, dim in enumerate(MORAL_DIMENSIONS):
     with moral_col1 if idx % 2 == 0 else moral_col2:
-        # 关键：输入框直接绑定session_state，输入值实时同步
-        st.session_state[f"score_{dim}"] = st.number_input(
+        # 仅渲染组件，不手动赋值给session_state
+        score = st.number_input(
             dim,
             min_value=0.0,
             max_value=100.0,
             step=0.5,
             key=f"score_{dim}",
             placeholder="输入1-100分值",
-            label_visibility="visible",
-            value=st.session_state[f"score_{dim}"]  # 保持输入状态
+            label_visibility="visible"
         )
-        # 实时显示等级
-        current_score = st.session_state[f"score_{dim}"]
-        st.caption(f"等级：{get_grade(current_score)} | 分值：{current_score if current_score > 0 else '未填写'}")
+        st.caption(f"等级：{get_grade(score)} | 分值：{score if score > 0 else '未填写'}")
 
 st.markdown("---")
 
-# 3. 教学业绩评分（同上，绑定session_state实现实时响应）
+# 3. 教学业绩评分（同上）
 st.markdown("### 📚 教学业绩评价（权重50%）")
 teaching_col1, teaching_col2, teaching_col3 = st.columns(3)
 for idx, dim in enumerate(TEACHING_DIMENSIONS):
     with [teaching_col1, teaching_col2, teaching_col3][idx]:
-        st.session_state[f"score_{dim}"] = st.number_input(
+        score = st.number_input(
             dim,
             min_value=0.0,
             max_value=100.0,
             step=0.5,
             key=f"score_{dim}",
             placeholder="输入1-100分值",
-            label_visibility="visible",
-            value=st.session_state[f"score_{dim}"]
+            label_visibility="visible"
         )
-        current_score = st.session_state[f"score_{dim}"]
-        st.caption(f"等级：{get_grade(current_score)} | 分值：{current_score if current_score > 0 else '未填写'}")
+        st.caption(f"等级：{get_grade(score)} | 分值：{score if score > 0 else '未填写'}")
 
 st.markdown("---")
 
-# 4. 实时计算得分（核心：输入值变化即触发计算，权重生效）
+# 4. 实时计算得分（仅读取state，不修改）
 def calculate_real_time():
-    """实时计算得分，明确权重逻辑"""
-    # 收集师德有效分值（>0）
+    """仅读取session_state，计算得分"""
+    # 收集师德有效分值
     moral_scores = []
     for dim in MORAL_DIMENSIONS:
         score = st.session_state[f"score_{dim}"]
         if score > 0:
             moral_scores.append(score)
     
-    # 收集教学有效分值（>0）
+    # 收集教学有效分值
     teaching_scores = []
     for dim in TEACHING_DIMENSIONS:
         score = st.session_state[f"score_{dim}"]
         if score > 0:
             teaching_scores.append(score)
     
-    # 计算条件：所有维度都填写有效分值
+    # 验证填写完整性
     all_moral_filled = len(moral_scores) == len(MORAL_DIMENSIONS)
     all_teaching_filled = len(teaching_scores) == len(TEACHING_DIMENSIONS)
-    base_info_filled = st.session_state["selected_person"] != "" and st.session_state["evaluator_role"] != ""
+    base_info_filled = selected_person != "" and evaluator_role != ""
     
     if all_moral_filled and all_teaching_filled and base_info_filled:
-        # 计算平均分
         moral_avg = round(np.mean(moral_scores), 1)
         teaching_avg = round(np.mean(teaching_scores), 1)
-        # 权重计算（核心：师德50% + 教学50%）
-        final_score = round(
-            (moral_avg * MORAL_WEIGHT) + (teaching_avg * TEACHING_WEIGHT),
-            1
-        )
-        return moral_avg, teaching_avg, final_score, True
+        final_score = round((moral_avg * MORAL_WEIGHT) + (teaching_avg * TEACHING_WEIGHT), 1)
+        return moral_avg, teaching_avg, final_score, True, ""
     else:
-        # 未填完时，返回未填信息
+        # 生成未填提示
         unfilled = []
         if not base_info_filled:
             unfilled.append("被测评人/测评身份未选择")
@@ -208,10 +221,9 @@ def calculate_real_time():
 # 执行实时计算
 moral_avg, teaching_avg, final_score, is_ready, unfilled_info = calculate_real_time()
 
-# 5. 显示计算结果（实时更新）
+# 5. 显示计算结果
 st.markdown("### 📊 实时测评结果")
 if is_ready:
-    # 所有信息填完，显示完整结果（含权重说明）
     res_col1, res_col2, res_col3 = st.columns(3)
     with res_col1:
         st.metric(
@@ -234,12 +246,11 @@ if is_ready:
             delta_color="normal"
         )
 else:
-    # 未填完，显示未填信息
     st.warning(f"⚠️ 暂无法计算得分：{unfilled_info}")
 
 st.markdown("---")
 
-# 6. 提交按钮（仅当所有信息填完才启用）
+# 6. 提交按钮（仅读取state，不修改）
 submit_btn = st.button(
     "💾 提交测评结果",
     use_container_width=True,
@@ -248,20 +259,20 @@ submit_btn = st.button(
 )
 
 if submit_btn:
-    # 构建提交记录
+    # 仅读取session_state，不修改
     moral_details = {dim: st.session_state[f"score_{dim}"] for dim in MORAL_DIMENSIONS}
     teaching_details = {dim: st.session_state[f"score_{dim}"] for dim in TEACHING_DIMENSIONS}
     
     submit_record = {
         "测评时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "被测评人": st.session_state["selected_person"],
-        "测评人身份": st.session_state["evaluator_role"],
+        "被测评人": selected_person,
+        "测评人身份": evaluator_role,
         "师德表现各维度得分": moral_details,
         "教学业绩各维度得分": teaching_details,
         "师德表现平均分": moral_avg,
         "教学业绩平均分": teaching_avg,
         "最终综合得分": final_score,
-        "权重配置": f"师德{MEVAL_WEIGHT*100}%+教学{TEACHING_WEIGHT*100}%"
+        "权重配置": f"师德{MORAL_WEIGHT*100}%+教学{TEACHING_WEIGHT*100}%"
     }
     
     # 保存记录
@@ -269,17 +280,12 @@ if submit_btn:
         save_data(submit_record)
         st.session_state.submission_success = True
         st.session_state.submission_info = {
-            "person": st.session_state["selected_person"],
+            "person": selected_person,
             "score": final_score,
             "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
-        
-        # 提交成功后重置所有输入值（归零）
-        for dim in MORAL_DIMENSIONS + TEACHING_DIMENSIONS:
-            st.session_state[f"score_{dim}"] = 0.0
-        st.session_state["selected_person"] = ""
-        st.session_state["evaluator_role"] = ""
-        
+        # 重置输入（通过rerun实现，不直接修改已实例化组件的state）
+        reset_all_inputs()
     except Exception as e:
         st.error(f"❌ 提交失败：{str(e)}")
 
@@ -297,7 +303,7 @@ if st.session_state.submission_success:
     st.session_state.submission_success = False
     st.session_state.submission_info = {}
 
-# 手机端操作提示（最底部）
+# 手机端操作提示
 st.caption("💡 操作小贴士：输入分值后实时显示结果，所有维度填完后提交按钮自动启用，点击即提交并归零~")
 
 # ===================== 管理员专属功能区 =====================
