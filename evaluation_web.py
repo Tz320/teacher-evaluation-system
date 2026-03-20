@@ -101,7 +101,7 @@ def reset_all_inputs():
     # 重置评分维度
     for dim in MORAL_DIMENSIONS + TEACHING_DIMENSIONS:
         st.session_state[f"score_{dim}"] = 0.0
-    # 重置基础信息（通过设置空值+rerun）
+    # 重置基础信息触发器
     st.session_state["reset_trigger"] = True
     st.rerun()
 
@@ -109,7 +109,7 @@ def reset_all_inputs():
 if "reset_trigger" not in st.session_state:
     st.session_state["reset_trigger"] = False
 
-# ===================== 普通用户界面（完全遵循Streamlit规则：组件驱动state，而非反向）=====================
+# ===================== 普通用户界面（完全遵循Streamlit规则）=====================
 st.title("📝 中小学职称评审综合测评")
 st.markdown("### 手机端专用 | 输入即计算，实时显示结果")
 st.markdown("---")
@@ -121,20 +121,20 @@ st.markdown("---")
 col1, col2 = st.columns(2)
 with col1:
     # 重置触发器生效时，默认选中空值
-    default_person = "" if st.session_state["reset_trigger"] else None
+    default_person_idx = 0 if st.session_state["reset_trigger"] else None
     selected_person = st.selectbox(
         "🔍 选择被测评人", 
         [""] + EVALUATED_PERSONS,
         key="selected_person",
-        index=0 if default_person == "" else None
+        index=default_person_idx
     )
 with col2:
-    default_role = "" if st.session_state["reset_trigger"] else None
+    default_role_idx = 0 if st.session_state["reset_trigger"] else None
     evaluator_role = st.selectbox(
         "👤 你的测评身份", 
         [""] + EVALUATOR_ROLES,
         key="evaluator_role",
-        index=0 if default_role == "" else None
+        index=default_role_idx
     )
 
 # 重置触发器使用后立即清除
@@ -221,27 +221,26 @@ def calculate_real_time():
 # 执行实时计算
 moral_avg, teaching_avg, final_score, is_ready, unfilled_info = calculate_real_time()
 
-# 5. 显示计算结果
+# 5. 显示计算结果（核心修复：Metric参数传递方式）
 st.markdown("### 📊 实时测评结果")
 if is_ready:
     res_col1, res_col2, res_col3 = st.columns(3)
     with res_col1:
         st.metric(
-            f"师德表现平均分（{MORAL_WEIGHT*100}%）", 
-            f"{moral_avg} 分", 
-            get_grade(moral_avg)
+            label=f"师德表现平均分（{MORAL_WEIGHT*100}%）", 
+            value=f"{moral_avg} 分", 
+            delta=get_grade(moral_avg)
         )
     with res_col2:
         st.metric(
-            f"教学业绩平均分（{TEACHING_WEIGHT*100}%）", 
-            f"{teaching_avg} 分", 
-            get_grade(teaching_avg)
+            label=f"教学业绩平均分（{TEACHING_WEIGHT*100}%）", 
+            value=f"{teaching_avg} 分", 
+            delta=get_grade(teaching_avg)
         )
     with res_col3:
         st.metric(
-            "最终综合得分", 
-            f"{final_score} 分", 
-            get_grade(final_score),
+            label="最终综合得分", 
+            value=f"{final_score} 分", 
             delta=f"师德×{MORAL_WEIGHT}+教学×{TEACHING_WEIGHT}",
             delta_color="normal"
         )
