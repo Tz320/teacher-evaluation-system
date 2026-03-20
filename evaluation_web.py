@@ -107,16 +107,6 @@ with st.sidebar:
             st.session_state.is_admin = False
             st.rerun()
 
-# ===================== 提交成功提示（用URL参数实现，无session_state修改）=====================
-query_params = st.query_params
-if "submitted" in query_params and query_params["submitted"] == "success":
-    st.success(f"""✅ 测评结果提交成功！
-    提交时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-    已自动重置为初始状态，可继续测评~
-    """)
-    # 清除URL参数，避免刷新后重复显示
-    st.query_params.clear()
-
 # ===================== 普通用户界面 =====================
 st.title("📝 中小学职称评审综合测评")
 st.markdown("### 手机端专用 | 自定义分值提交")
@@ -216,7 +206,17 @@ if submit_btn:
     
     # 2. 跳转实现重置（核心：不修改session_state，用URL参数提示成功）
     st.query_params["submitted"] = "success"
-    st.rerun()  # 刷新页面，所有输入框回到初始值（首次初始化的0.0）
+    st.rerun(0.0)  # 刷新页面，所有输入框回到初始值（首次初始化的0.0）
+    
+# ===================== 提交成功提示（用URL参数实现，无session_state修改）=====================
+query_params = st.query_params
+if "submitted" in query_params and query_params["submitted"] == "success":
+    st.success(f"""✅ 测评结果提交成功！
+    提交时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+    已自动重置为初始状态，可继续测评~
+    """)
+    # 清除URL参数，避免刷新后重复显示
+    st.query_params.clear()
 
 # 手机端提示
 st.markdown("---")
