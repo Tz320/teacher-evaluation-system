@@ -206,7 +206,7 @@ if submit_btn:
     
     # 2. 跳转实现重置（核心：不修改session_state，用URL参数提示成功）
     st.query_params["submitted"] = "success"
-    st.rerun(0.0)  # 刷新页面，所有输入框回到初始值（首次初始化的0.0）
+    st.rerun()  # 刷新页面，所有输入框回到初始值（首次初始化的0.0）
     
 # ===================== 提交成功提示（用URL参数实现，无session_state修改）=====================
 query_params = st.query_params
