@@ -42,7 +42,8 @@ def save_data(record):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 def get_grade(score):
-    if score <= 0:
+    """优化等级判断，避免0值误判"""
+    if score is None or score <= 0:
         return "未评分"
     elif 80 <= score <= 95:
         return "优秀 🟢"
@@ -58,24 +59,13 @@ def get_grade(score):
 def admin_auth(password):
     return password == ADMIN_PASSWORD
 
-def calculate_scores(form_data):
-    """根据表单数据计算得分，不依赖session_state"""
-    moral_scores = [form_data[f"score_{dim}"] for dim in MORAL_DIMENSIONS if form_data[f"score_{dim}"] > 0]
-    teaching_scores = [form_data[f"score_{dim}"] for dim in TEACHING_DIMENSIONS if form_data[f"score_{dim}"] > 0]
-
-    moral_avg = round(np.mean(moral_scores), 1) if len(moral_scores) == len(MORAL_DIMENSIONS) else None
-    teaching_avg = round(np.mean(teaching_scores), 1) if len(teaching_scores) == len(TEACHING_DIMENSIONS) else None
-    final_score = round((moral_avg * 0.5) + (teaching_avg * 0.5), 1) if (moral_avg and teaching_avg) else None
-    
-    return moral_avg, teaching_avg, final_score
-
 # ===================== 初始化会话状态 =====================
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
 if "submission_success" not in st.session_state:
-    st.session_state.submission_success = False  # 提交成功标记
+    st.session_state.submission_success = False
 if "submission_info" not in st.session_state:
-    st.session_state.submission_info = {}  # 提交成功信息存储
+    st.session_state.submission_info = {}
 
 # ===================== 侧边栏管理员入口 =====================
 with st.sidebar:
@@ -95,48 +85,59 @@ with st.sidebar:
             st.session_state.is_admin = False
             st.rerun()
 
-# ===================== 普通用户界面（核心：用表单实现自动清空）=====================
+# ===================== 普通用户界面（核心修复：表单+提交逻辑）=====================
 st.title("📝 中小学职称评审综合测评")
 st.markdown("### 手机端专用 | 自定义分值提交")
 st.markdown("---")
 st.markdown("#### ⚠️ 评分标准：优秀(80-95) | 良好(70-79) | 一般(60-69) | 不合格(1-59)")
-st.markdown("#### 📌 提示：分值填0代表未填写，请输入1-100的有效分值")
+st.markdown("#### 📌 提示：请为所有维度输入1-100的有效分值（0代表未填写）")
 st.markdown("---")
 
-# 关键修复：使用Streamlit表单，开启clear_on_submit=True自动清空
+# 关键修复1：表单不依赖外部状态，内部独立处理提交逻辑
 with st.form(key="evaluation_form", clear_on_submit=True):
     # 1. 基础信息选择
     col1, col2 = st.columns(2)
     with col1:
-        selected_person = st.selectbox("🔍 选择被测评人", EVALUATED_PERSONS, key="person", placeholder="请选择")
+        selected_person = st.selectbox(
+            "🔍 选择被测评人", 
+            [""] + EVALUATED_PERSONS,  # 添加空选项，强制用户选择
+            key="person"
+        )
     with col2:
-        evaluator_role = st.selectbox("👤 你的测评身份", EVALUATOR_ROLES, key="role", placeholder="请选择")
+        evaluator_role = st.selectbox(
+            "👤 你的测评身份", 
+            [""] + EVALUATOR_ROLES,  # 添加空选项，强制用户选择
+            key="role"
+        )
 
     st.markdown("---")
 
-    # 2. 师德表现评分（表单内输入框，提交后自动清空）
+    # 2. 师德表现评分（存储输入值到表单内变量，不依赖session_state）
     st.markdown("### 🎯 师德表现评价（权重50%）")
     moral_col1, moral_col2 = st.columns(2)
-    form_data = {}  # 存储表单内所有输入数据
+    moral_scores = {}  # 表单内局部存储，避免状态冲突
     for idx, dim in enumerate(MORAL_DIMENSIONS):
         with moral_col1 if idx % 2 == 0 else moral_col2:
+            # 关键修复2：number_input初始值设为None（Streamlit 1.27+支持），避免0值干扰
             score = st.number_input(
                 dim,
                 min_value=0.0,
                 max_value=100.0,
                 step=0.5,
-                key=f"score_{dim}",
+                key=f"moral_{dim}",
                 placeholder="输入1-100分值",
-                label_visibility="visible"
+                label_visibility="visible",
+                value=None  # 初始为空，用户必须主动输入
             )
-            form_data[f"score_{dim}"] = score
-            st.caption(f"等级：{get_grade(score)}")
+            moral_scores[dim] = score if score is not None else 0.0
+            st.caption(f"等级：{get_grade(moral_scores[dim])}")
 
     st.markdown("---")
 
-    # 3. 教学业绩评分（表单内输入框，提交后自动清空）
+    # 3. 教学业绩评分
     st.markdown("### 📚 教学业绩评价（权重50%）")
     teaching_col1, teaching_col2, teaching_col3 = st.columns(3)
+    teaching_scores = {}
     for idx, dim in enumerate(TEACHING_DIMENSIONS):
         with [teaching_col1, teaching_col2, teaching_col3][idx]:
             score = st.number_input(
@@ -144,17 +145,33 @@ with st.form(key="evaluation_form", clear_on_submit=True):
                 min_value=0.0,
                 max_value=100.0,
                 step=0.5,
-                key=f"score_{dim}",
+                key=f"teaching_{dim}",
                 placeholder="输入1-100分值",
-                label_visibility="visible"
+                label_visibility="visible",
+                value=None
             )
-            form_data[f"score_{dim}"] = score
-            st.caption(f"等级：{get_grade(score)}")
+            teaching_scores[dim] = score if score is not None else 0.0
+            st.caption(f"等级：{get_grade(teaching_scores[dim])}")
 
     st.markdown("---")
 
-    # 4. 实时计算并展示结果（表单内实时更新）
-    moral_avg, teaching_avg, final_score = calculate_scores(form_data)
+    # 4. 表单内独立计算得分（关键修复3：避免外部状态依赖）
+    def calculate_form_scores(moral_dict, teaching_dict):
+        """表单内局部计算，不依赖任何外部状态"""
+        # 过滤掉0值（未填写）
+        valid_moral = [v for v in moral_dict.values() if v > 0]
+        valid_teaching = [v for v in teaching_dict.values() if v > 0]
+        
+        # 必须所有维度都填写（有效分值>0）才计算得分
+        if len(valid_moral) == len(MORAL_DIMENSIONS) and len(valid_teaching) == len(TEACHING_DIMENSIONS):
+            moral_avg = round(np.mean(valid_moral), 1)
+            teaching_avg = round(np.mean(valid_teaching), 1)
+            final_score = round((moral_avg * 0.5) + (teaching_avg * 0.5), 1)
+            return moral_avg, teaching_avg, final_score
+        return None, None, None
+
+    # 计算得分并展示
+    moral_avg, teaching_avg, final_score = calculate_form_scores(moral_scores, teaching_scores)
     st.markdown("### 📊 你的测评结果")
     if final_score is not None:
         res_col1, res_col2, res_col3 = st.columns(3)
@@ -165,64 +182,62 @@ with st.form(key="evaluation_form", clear_on_submit=True):
         with res_col3:
             st.metric("最终综合得分", f"{final_score} 分", get_grade(final_score))
     else:
-        st.warning("⚠️ 请补全所有维度的有效分值（1-100），填完后将自动显示测评结果！")
+        st.warning("⚠️ 请补全所有维度的有效分值（1-100），填完后提交按钮将自动启用！")
 
     st.markdown("---")
 
-    # 5. 表单提交按钮（核心：表单内提交，触发自动清空）
+    # 关键修复4：提交按钮禁用逻辑简化，仅依赖表单内计算结果
     submit_btn = st.form_submit_button(
         "💾 提交测评结果",
         use_container_width=True,
         type="primary",
-        disabled=final_score is None
+        # 只有得分计算成功+选择了被测评人+选择了身份，才启用按钮
+        disabled=final_score is None or selected_person == "" or evaluator_role == ""
     )
 
-    # 提交逻辑（表单内处理，不修改session_state）
+    # 关键修复5：提交逻辑在表单内独立处理，不依赖外部session_state修改
     if submit_btn:
         # 构建提交记录
-        moral_details = {dim: form_data[f"score_{dim}"] for dim in MORAL_DIMENSIONS}
-        teaching_details = {dim: form_data[f"score_{dim}"] for dim in TEACHING_DIMENSIONS}
-        
         submit_record = {
             "测评时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "被测评人": selected_person,
             "测评人身份": evaluator_role,
-            "师德表现各维度得分": moral_details,
-            "教学业绩各维度得分": teaching_details,
+            "师德表现各维度得分": moral_scores,
+            "教学业绩各维度得分": teaching_scores,
             "师德表现平均分": moral_avg,
             "教学业绩平均分": teaching_avg,
             "最终综合得分": final_score
         }
         
-        # 保存记录
-        save_data(submit_record)
-        
-        # 存储提交成功信息，用于表单外显示
-        st.session_state.submission_success = True
-        st.session_state.submission_info = {
-            "person": selected_person,
-            "score": final_score,
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
+        # 保存记录（确保文件可写入）
+        try:
+            save_data(submit_record)
+            # 存储成功信息，用于表单外显示
+            st.session_state.submission_success = True
+            st.session_state.submission_info = {
+                "person": selected_person,
+                "score": final_score,
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+        except Exception as e:
+            st.error(f"❌ 提交失败：{str(e)}")
 
-# ===================== 提交成功提示（放在界面最下方，核心修复）=====================
+# ===================== 提交成功提示（界面最下方）=====================
 st.markdown("---")
-# 显示提交成功提示（仅当提交成功时显示）
 if st.session_state.submission_success:
     success_info = st.session_state.submission_info
-    st.success(f"""✅ 测评结果提交成功！
+    st.success(f"""🎉 测评结果提交成功！
     被测评人：{success_info['person']}
     最终综合得分：{success_info['score']} 分
     提交时间：{success_info['time']}
     所有分值已自动清空，可继续为下一位测评~
-    """, icon="🎉")
-    
-    # 重置提交状态，避免刷新后重复显示
+    """)
+    # 重置状态，避免刷新重复显示
     st.session_state.submission_success = False
     st.session_state.submission_info = {}
 
 # 手机端操作提示（最底部）
-st.caption("💡 手机操作小贴士：所有分值填完自动出结果，确认无误后点击提交即可，提交后自动清空可继续测评~")
+st.caption("💡 操作小贴士：所有维度填完有效分值后，提交按钮自动启用，点击即提交并清空表单~")
 
 # ===================== 管理员专属功能区 =====================
 if st.session_state.is_admin:
