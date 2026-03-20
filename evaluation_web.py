@@ -10,71 +10,41 @@ import json
 st.set_page_config(
     page_title="中小学职称评审综合测评系统",
     page_icon="📝",
-    layout="centered",  # 手机端居中布局更友好
+    layout="centered",
     initial_sidebar_state="collapsed"
 )
 
-# ===================== 系统核心配置（可自定义修改）=====================
-# 管理员密码（务必修改为自己的复杂密码）
+# ===================== 系统核心配置 =====================
 ADMIN_PASSWORD = "admin123456"
-# 40名被测评人名单
 EVALUATED_PERSONS = [f"被测评人{i}" for i in range(1, 41)]
-# 测评人身份选项
 EVALUATOR_ROLES = ["领导", "老师", "家长", "学生"]
-# 师德表现10个维度（权重50%）
 MORAL_DIMENSIONS = [
     "坚定政治方向", "自觉爱国守法", "传播优秀文化", "潜心教书育人", "关心爱护学生",
     "加强安全防范", "坚持言行雅正", "秉持公平诚信", "坚守廉洁自律", "规范从教行为"
 ]
-# 教学业绩3个维度（权重50%）
 TEACHING_DIMENSIONS = ["教学态度", "教学能力", "教学效果"]
-# 评分等级标准
-SCORE_RANGES = {
-    "优秀": (80, 95), "良好": (70, 79), "一般": (60, 69), "不合格": (0, 59)
-}
-# 测评数据存储文件
 DATA_FILE = "evaluation_data.json"
 
-# ===================== 会话状态初始化（关键修复：仅初始化，不后续修改）=====================
-# 初始化管理员状态
-if "is_admin" not in st.session_state:
-    st.session_state.is_admin = False
-# 初始化得分状态
-if "final_score" not in st.session_state:
-    st.session_state.final_score = None
-if "moral_avg" not in st.session_state:
-    st.session_state.moral_avg = None
-if "teaching_avg" not in st.session_state:
-    st.session_state.teaching_avg = None
-# 初始化所有评分维度为0.0（Streamlit要求必须有初始值，用0表示未填写）
-for dim in MORAL_DIMENSIONS + TEACHING_DIMENSIONS:
-    key = f"score_{dim}"
-    if key not in st.session_state:
-        st.session_state[key] = 0.0  # 初始值设为0，代表未填写
-
-# ===================== 工具函数（核心逻辑，无需修改）=====================
+# ===================== 工具函数 =====================
 def load_data():
-    """加载所有测评提交数据"""
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception as e:
+        except:
             return []
     return []
 
 def save_data(record):
-    """保存用户提交的测评记录"""
     data = load_data()
     data.append(record)
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 def get_grade(score):
-    """根据分数自动判断等级"""
-    if score <= 0:  # 0代表未填写
+    if score <= 0:
         return "未评分"
-    if 80 <= score <= 95:
+    elif 80 <= score <= 95:
         return "优秀 🟢"
     elif 70 <= score <= 79:
         return "良好 🔵"
@@ -86,58 +56,43 @@ def get_grade(score):
         return "分值无效 ⚫"
 
 def admin_auth(password):
-    """管理员密码验证"""
     return password == ADMIN_PASSWORD
 
-def auto_calculate_scores():
-    """自动计算所有得分：仅读取session_state，不修改（关键修复）"""
-    # 收集师德表现分数（过滤0值，0代表未填写）
+def calculate_scores():
+    """仅计算得分，不修改任何session_state"""
     moral_scores = []
     for dim in MORAL_DIMENSIONS:
-        score = st.session_state[f"score_{dim}"]
-        if score > 0:  # 仅处理大于0的有效分值
+        score = st.session_state.get(f"score_{dim}", 0.0)
+        if score > 0:
             moral_scores.append(score)
-    
-    # 所有师德维度都填了（10个维度都>0）
-    if len(moral_scores) == len(MORAL_DIMENSIONS):
-        st.session_state.moral_avg = round(np.mean(moral_scores), 1)
-    else:
-        st.session_state.moral_avg = None
-    
-    # 收集教学业绩分数（过滤0值）
+
     teaching_scores = []
     for dim in TEACHING_DIMENSIONS:
-        score = st.session_state[f"score_{dim}"]
+        score = st.session_state.get(f"score_{dim}", 0.0)
         if score > 0:
             teaching_scores.append(score)
-    
-    # 所有教学维度都填了（3个维度都>0）
-    if len(teaching_scores) == len(TEACHING_DIMENSIONS):
-        st.session_state.teaching_avg = round(np.mean(teaching_scores), 1)
-    else:
-        st.session_state.teaching_avg = None
-    
-    # 计算最终综合得分（仅当两个平均分都有值时）
-    if st.session_state.moral_avg is not None and st.session_state.teaching_avg is not None:
-        st.session_state.final_score = round(
-            (st.session_state.moral_avg * 0.5) + (st.session_state.teaching_avg * 0.5), 1
-        )
-    else:
-        st.session_state.final_score = None
 
-def reset_scores():
-    """重置所有分值为0（仅在提交成功后调用，通过rerun生效）"""
-    for dim in MORAL_DIMENSIONS + TEACHING_DIMENSIONS:
-        st.session_state[f"score_{dim}"] = 0.0
-    st.session_state.final_score = None
-    st.session_state.moral_avg = None
-    st.session_state.teaching_avg = None
+    moral_avg = round(np.mean(moral_scores), 1) if len(moral_scores) == len(MORAL_DIMENSIONS) else None
+    teaching_avg = round(np.mean(teaching_scores), 1) if len(teaching_scores) == len(TEACHING_DIMENSIONS) else None
+    final_score = round((moral_avg * 0.5) + (teaching_avg * 0.5), 1) if (moral_avg and teaching_avg) else None
+    
+    return moral_avg, teaching_avg, final_score
 
-# ===================== 侧边栏：管理员专属登录入口=====================
+# ===================== 初始化：仅在首次加载时初始化，永不修改 =====================
+# 管理员状态
+if "is_admin" not in st.session_state:
+    st.session_state.is_admin = False
+
+# 评分维度：仅初始化一次，后续永不修改（核心！）
+for dim in MORAL_DIMENSIONS + TEACHING_DIMENSIONS:
+    key = f"score_{dim}"
+    if key not in st.session_state:
+        st.session_state[key] = 0.0
+
+# ===================== 侧边栏管理员入口 =====================
 with st.sidebar:
     st.markdown("### 🔐 管理员后台")
     if not st.session_state.is_admin:
-        # 非管理员：仅显示密码输入框
         admin_pwd = st.text_input("请输入管理员密码", type="password", placeholder="输入密码后登录")
         if st.button("登录", use_container_width=True, type="primary"):
             if admin_auth(admin_pwd):
@@ -147,15 +102,22 @@ with st.sidebar:
             else:
                 st.error("❌ 密码错误，请重新输入！")
     else:
-        # 管理员：显示登录状态+退出按钮
         st.success("✅ 当前为管理员模式")
-        st.info("📊 下方可查看/统计所有测评数据")
         if st.button("退出管理员", use_container_width=True, type="secondary"):
             st.session_state.is_admin = False
-            st.info("已退出管理员模式")
             st.rerun()
 
-# ===================== 普通用户核心界面（所有人可见，极简设计）=====================
+# ===================== 提交成功提示（用URL参数实现，无session_state修改）=====================
+query_params = st.query_params
+if "submitted" in query_params and query_params["submitted"] == "success":
+    st.success(f"""✅ 测评结果提交成功！
+    提交时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+    已自动重置为初始状态，可继续测评~
+    """)
+    # 清除URL参数，避免刷新后重复显示
+    st.query_params.clear()
+
+# ===================== 普通用户界面 =====================
 st.title("📝 中小学职称评审综合测评")
 st.markdown("### 手机端专用 | 自定义分值提交")
 st.markdown("---")
@@ -163,7 +125,7 @@ st.markdown("#### ⚠️ 评分标准：优秀(80-95) | 良好(70-79) | 一般(6
 st.markdown("#### 📌 提示：分值填0代表未填写，请输入1-100的有效分值")
 st.markdown("---")
 
-# 第一步：基础信息选择（被测评人+测评人身份）
+# 1. 基础信息选择
 col1, col2 = st.columns(2)
 with col1:
     selected_person = st.selectbox("🔍 选择被测评人", EVALUATED_PERSONS, key="person", placeholder="请选择")
@@ -172,32 +134,12 @@ with col2:
 
 st.markdown("---")
 
-# 第二步：师德表现评分（10维度，初始值0，输入后实时计算）
+# 2. 师德表现评分（仅读取，不修改session_state）
 st.markdown("### 🎯 师德表现评价（权重50%）")
 moral_col1, moral_col2 = st.columns(2)
 for idx, dim in enumerate(MORAL_DIMENSIONS):
     with moral_col1 if idx % 2 == 0 else moral_col2:
-        # 关键修复：输入框的value直接绑定session_state，不再后续修改
-        score = st.number_input(
-            dim,
-            min_value=0.0,
-            max_value=100.0,
-            step=0.5,
-            key=f"score_{dim}",  # value直接从session_state读取
-            placeholder="输入1-100分值",
-            label_visibility="visible"
-        )
-        # 仅显示等级，不修改session_state
-        st.caption(f"等级：{get_grade(score)}")
-
-st.markdown("---")
-
-# 第三步：教学业绩评分（3维度，初始值0，输入后实时计算）
-st.markdown("### 📚 教学业绩评价（权重50%）")
-teaching_col1, teaching_col2, teaching_col3 = st.columns(3)
-for idx, dim in enumerate(TEACHING_DIMENSIONS):
-    with [teaching_col1, teaching_col2, teaching_col3][idx]:
-        # 关键修复：输入框value单向绑定session_state
+        # 仅渲染输入框，永不修改对应的session_state
         score = st.number_input(
             dim,
             min_value=0.0,
@@ -209,38 +151,54 @@ for idx, dim in enumerate(TEACHING_DIMENSIONS):
         )
         st.caption(f"等级：{get_grade(score)}")
 
-# 实时自动计算得分（仅读取，不修改session_state）
-auto_calculate_scores()
+st.markdown("---")
+
+# 3. 教学业绩评分（仅读取，不修改session_state）
+st.markdown("### 📚 教学业绩评价（权重50%）")
+teaching_col1, teaching_col2, teaching_col3 = st.columns(3)
+for idx, dim in enumerate(TEACHING_DIMENSIONS):
+    with [teaching_col1, teaching_col2, teaching_col3][idx]:
+        score = st.number_input(
+            dim,
+            min_value=0.0,
+            max_value=100.0,
+            step=0.5,
+            key=f"score_{dim}",
+            placeholder="输入1-100分值",
+            label_visibility="visible"
+        )
+        st.caption(f"等级：{get_grade(score)}")
+
+# 4. 实时计算得分（仅返回结果，不修改session_state）
+moral_avg, teaching_avg, final_score = calculate_scores()
 
 st.markdown("---")
 
-# 第四步：测评结果展示（所有分值填完后自动显示）
+# 5. 结果展示
 st.markdown("### 📊 你的测评结果")
-if st.session_state.final_score is not None:
-    # 所有分值填完：显示完整得分
+if final_score is not None:
     res_col1, res_col2, res_col3 = st.columns(3)
     with res_col1:
-        st.metric("师德表现平均分", f"{st.session_state.moral_avg} 分", get_grade(st.session_state.moral_avg))
+        st.metric("师德表现平均分", f"{moral_avg} 分", get_grade(moral_avg))
     with res_col2:
-        st.metric("教学业绩平均分", f"{st.session_state.teaching_avg} 分", get_grade(st.session_state.teaching_avg))
+        st.metric("教学业绩平均分", f"{teaching_avg} 分", get_grade(teaching_avg))
     with res_col3:
-        st.metric("最终综合得分", f"{st.session_state.final_score} 分", get_grade(st.session_state.final_score))
+        st.metric("最终综合得分", f"{final_score} 分", get_grade(final_score))
 else:
-    # 有未填分值：提示补全
     st.warning("⚠️ 请补全所有维度的有效分值（1-100），填完后将自动显示测评结果！")
 
 st.markdown("---")
 
-# 第五步：唯一提交按钮（所有分值填完后才可点击，提交后自动清空）
+# 6. 提交按钮（核心：提交后不修改session_state，仅保存数据+跳转）
 submit_btn = st.button(
     "💾 提交测评结果",
     use_container_width=True,
     type="primary",
-    disabled=st.session_state.final_score is None  # 结果为空时禁用按钮
+    disabled=final_score is None
 )
 
 if submit_btn:
-    # 构建测评提交记录（读取session_state中的分值）
+    # 1. 构建并保存记录（仅读取session_state，不修改）
     moral_details = {dim: st.session_state[f"score_{dim}"] for dim in MORAL_DIMENSIONS}
     teaching_details = {dim: st.session_state[f"score_{dim}"] for dim in TEACHING_DIMENSIONS}
     
@@ -250,45 +208,35 @@ if submit_btn:
         "测评人身份": evaluator_role,
         "师德表现各维度得分": moral_details,
         "教学业绩各维度得分": teaching_details,
-        "师德表现平均分": st.session_state.moral_avg,
-        "教学业绩平均分": st.session_state.teaching_avg,
-        "最终综合得分": st.session_state.final_score
+        "师德表现平均分": moral_avg,
+        "教学业绩平均分": teaching_avg,
+        "最终综合得分": final_score
     }
-    
-    # 保存记录
     save_data(submit_record)
-    st.success(f"""✅ 测评结果提交成功！
-    被测评人：{selected_person}
-    最终综合得分：{st.session_state.final_score} 分
-    提交时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-    """)
     
-    # 重置分值（关键修复：先重置，再rerun，避免修改已渲染组件的session_state）
-    reset_scores()
-    st.rerun()
+    # 2. 跳转实现重置（核心：不修改session_state，用URL参数提示成功）
+    st.query_params["submitted"] = "success"
+    st.rerun()  # 刷新页面，所有输入框回到初始值（首次初始化的0.0）
 
-# 手机端操作提示
+# 手机端提示
 st.markdown("---")
-st.caption("💡 手机操作小贴士：所有分值填完自动出结果，确认无误后点击提交即可，提交后自动清空可继续测评~")
+st.caption("💡 手机操作小贴士：所有分值填完自动出结果，确认无误后点击提交即可，提交后自动重置可继续测评~")
 
-# ===================== 管理员专属功能区（仅登录后可见，按被测评人+身份双维度统计）=====================
+# ===================== 管理员功能区 =====================
 if st.session_state.is_admin:
     st.markdown("---")
     st.markdown("## 🛡️ 管理员专属 | 测评数据统计与导出")
     st.markdown("### 统计维度：按被测评人分组 + 按测评人身份细分")
     st.markdown("---")
     
-    # 加载所有测评数据
     all_data = load_data()
     if not all_data:
         st.info("📭 暂无测评数据，请等待用户提交后再查看统计！")
     else:
-        # 转换为DataFrame，方便统计分析
         df_raw = pd.DataFrame(all_data)
-        # 提取核心统计字段
         df_stats = df_raw[["测评时间", "被测评人", "测评人身份", "师德表现平均分", "教学业绩平均分", "最终综合得分"]].copy()
         
-        # 1. 全量数据概览
+        # 1. 全量概览
         st.markdown("### 📈 全量测评数据概览")
         overview_col1, overview_col2, overview_col3, overview_col4 = st.columns(4)
         with overview_col1:
@@ -301,21 +249,19 @@ if st.session_state.is_admin:
             st.metric("测评身份类型数", df_stats["测评人身份"].nunique())
         st.dataframe(df_stats, use_container_width=True, hide_index=True)
         
-        # 2. 核心统计：按【被测评人】分组 + 【测评人身份】细分（核心需求）
+        # 2. 双维度核心统计
         st.markdown("### 🔍 核心统计：被测评人 × 测评人身份 双维度")
-        # 按被测评人+测评人身份双重分组统计
         double_group = df_stats.groupby(["被测评人", "测评人身份"]).agg({
             "最终综合得分": ["count", "mean", "max", "min"],
             "师德表现平均分": "mean",
             "教学业绩平均分": "mean"
         }).round(1)
-        # 重命名列，更易读
         double_group.columns = ["测评次数", "平均最终得分", "最高得分", "最低得分", "平均师德得分", "平均教学得分"]
-        double_group = double_group.reset_index()  # 取消索引，显示被测评人+身份列
+        double_group = double_group.reset_index()
         st.dataframe(double_group, use_container_width=True)
         
-        # 3. 按被测评人汇总（合并所有身份的统计）
-        st.markdown("### 📋 按被测评人汇总统计（所有身份合并）")
+        # 3. 按被测评人汇总
+        st.markdown("### 📋 按被测评人汇总统计")
         person_group = df_stats.groupby("被测评人").agg({
             "最终综合得分": ["count", "mean", "max", "min", "std"],
             "师德表现平均分": "mean",
@@ -324,8 +270,8 @@ if st.session_state.is_admin:
         person_group.columns = ["总测评次数", "平均最终得分", "最高得分", "最低得分", "得分标准差", "平均师德得分", "平均教学得分"]
         st.dataframe(person_group, use_container_width=True)
         
-        # 4. 按测评人身份汇总统计
-        st.markdown("### 📋 按测评人身份汇总统计（所有被测评人合并）")
+        # 4. 按身份汇总
+        st.markdown("### 📋 按测评人身份汇总统计")
         role_group = df_stats.groupby("测评人身份").agg({
             "最终综合得分": ["count", "mean", "std"],
             "师德表现平均分": "mean",
@@ -334,7 +280,7 @@ if st.session_state.is_admin:
         role_group.columns = ["测评总次数", "平均最终得分", "得分标准差", "平均师德得分", "平均教学得分"]
         st.dataframe(role_group, use_container_width=True)
         
-        # 5. 全量数据导出（CSV格式，可直接用Excel打开）
+        # 5. 数据导出
         st.markdown("### 📥 全量数据导出")
         csv_data = df_raw.to_csv(index=False, encoding="utf-8-sig")
         st.download_button(
